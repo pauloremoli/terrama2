@@ -4,6 +4,15 @@
 
 {% block title %} TerraMA² {[ __("Data Provider Registration") ]} {% endblock %}
 
+{% block styles %}
+<style>
+  .has-feedback label~.form-control-feedback {
+    top: 25px !important;
+    margin-right: 20px !important;
+  }
+</style>
+{% endblock %}
+
 {% block ngApp %} ng-app="terrama2.dataprovider.registration" {% endblock %}
 
 {% block javascripts %}
@@ -42,7 +51,7 @@
     <div class="row">
       <form name="forms.dataProviderForm">
         <div class="col-md-7">
-          <div class="form-group has-feedback" ng-class="{'has-error': forms.dataProviderForm.name.$touched && forms.dataProviderForm.name.$invalid, 'has-success': forms.dataProviderForm.name.$touched && forms.dataProviderForm.name.$valid}">
+          <div class="form-group has-feedback" terrama2-show-errors>
             <label>{[ __("Name") ]}:</label>
             <input class="form-control"
                    name="name"
@@ -50,20 +59,20 @@
                    placeholder="{[ __('Data Provider Name') ]}"
                    type="text" required>
 
-            <span class="form-control-feedback glyphicon" ng-show="forms.dataProviderForm.name.$touched" ng-class="{'glyphicon-ok': forms.dataProviderForm.name.$valid, 'glyphicon-remove': forms.dataProviderForm.name.$invalid }"></span>
+            <span class="form-control-feedback glyphicon" ng-show="forms.dataProviderForm.name.$dirty" ng-class="{'glyphicon-ok': forms.dataProviderForm.name.$valid, 'glyphicon-remove': forms.dataProviderForm.name.$invalid }"></span>
 
-            <span class="help-block" ng-show="forms.dataProviderForm.name.$touched && forms.dataProviderForm.name.$invalid" ng-class="{'has-error': forms.dataProviderForm.name.$invalid}">{[ __('Data provider name is required') ]}</span>
+            <span class="help-block" ng-show="forms.dataProviderForm.name.$dirty && forms.dataProviderForm.name.$invalid" ng-class="{'has-error': forms.dataProviderForm.name.$invalid}">{[ __('Data provider name is required') ]}</span>
           </div>
         </div>
         <!-- /.col -->
         <div class="col-md-3">
-          <div class="form-group has-feedback" ng-class="{'has-error': forms.dataProviderForm.protocol.$touched && forms.dataProviderForm.protocol.$invalid, 'has-success': forms.dataProviderForm.protocol.$touched && forms.dataProviderForm.protocol.$valid}">
+          <div class="form-group has-feedback" terrama2-show-errors>
             <label>{[ __("Type") ]}:</label>
             <select ng-init="console.log(this)" class="form-control" name="protocol" ng-model="dataProvider.protocol" ng-change="onSchemeChanged(this)" ng-disabled="isEditing" required>
               <option ng-repeat="item in typeList" value="{{ item.name }}" title="{{ item.description }}">{{ item.name }}</option>
             </select>
 
-            <span class="help-block" ng-show="forms.dataProviderForm.protocol.$touched && forms.dataProviderForm.protocol.$invalid" ng-class="{'has-error': forms.dataProviderForm.protocol.$invalid}">{[ __('Data provider protocol is required') ]}</span>
+            <span class="help-block" ng-show="forms.dataProviderForm.protocol.$dirty && forms.dataProviderForm.protocol.$invalid" ng-class="{'has-error': forms.dataProviderForm.protocol.$invalid}">{[ __('Data provider protocol is required') ]}</span>
           </div>
           <!-- /.form-group -->
         </div>
@@ -88,19 +97,18 @@
         </div>
       </form>
 
-        <div class="col-md-12">
-          <div class="form-group">
-            <form name="forms.connectionForm" sf-schema="schema" sf-form="form" sf-model="model" sf-options="options"></form>
-          </div>
+      <terrama2-box title="'{[ __('Host') ]}'" css="css" ng-show="dataProvider.protocol && dataProvider.protocol !== ''">
+        <div class="row">
+          <form name="forms.connectionForm" sf-schema="schema" sf-form="form" sf-model="model" sf-options="options"></form>
         </div>
-        <!-- /.col -->
+      </terrama2-box>
     </div>
     <!-- /.row -->
 
     <div class="box-footer">
       <button type="submit" class="btn btn-primary pull-right" ng-click="save();" style="margin-left: 10px;">{[ __("OK") ]}</button>
       <a ng-href="{{ redirectUrl }}" class="btn btn-primary pull-right" style="margin-left: 10px;">{[ __("Cancel") ]}</a>
-      <button type="submit" class="btn btn-primary pull-right" ng-click="checkConnection(connectionForm);" style="margin-left: 10px;">{[ __("Check Connection")]}</button>
+      <button type="submit" class="btn btn-primary pull-right" ng-click="checkConnection(forms.connectionForm);" style="margin-left: 10px;">{[ __("Check Connection")]}</button>
     </div>
 
     <div class="overlay" ng-show="isChecking">

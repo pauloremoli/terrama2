@@ -50,7 +50,6 @@ namespace terrama2
 
         /*!
           \brief Creates a Json object from a View
-          \attention This is a function created for debug and tests
         */
         QJsonObject toJson(ViewPtr view);
 

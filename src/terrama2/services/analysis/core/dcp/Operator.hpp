@@ -35,6 +35,7 @@
 #include "../PythonInterpreter.hpp"
 #include "../BufferMemory.hpp"
 #include "../Analysis.hpp"
+#include "../Shared.hpp"
 
 // STL
 #include <string>
@@ -68,8 +69,8 @@ namespace terrama2
             \return A double value with the result.
           */
           double operatorImpl(terrama2::services::analysis::core::StatisticOperation statisticOperation, const std::string& dataSeriesName,
-                             const std::string& attribute, terrama2::services::analysis::core::Buffer buffer,
-                             boost::python::list ids = boost::python::list());
+                              const std::string& attribute, terrama2::services::analysis::core::Buffer buffer,
+                              boost::python::list ids = boost::python::list());
 
           /*!
             \brief It returns the number of DCPs that have influence over the current monitored object.
@@ -99,7 +100,7 @@ namespace terrama2
 
             \return A double with the minimum value.
           */
-          double min(const std::string& dataSeriesName, const std::string& attribute, terrama2::services::analysis::core::Buffer buffer,
+          double min( const std::string& dataSeriesName, const std::string& attribute, terrama2::services::analysis::core::Buffer buffer,
                         boost::python::list ids = boost::python::list());
 
           /*!

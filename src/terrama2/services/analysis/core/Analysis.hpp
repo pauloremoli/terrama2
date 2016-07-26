@@ -121,6 +121,7 @@ namespace terrama2
         */
         enum class InterpolationMethod
         {
+          //REVIEW: Why is this redefined? should te::rst::InterpolationMethod be used instead?
           UNDEFINTERPMETHOD = 0,  //!< Undefined interpolation method.
           NEARESTNEIGHBOR = 1,    //!< Near neighborhood interpolation method.
           BILINEAR = 2,           //!< Bilinear interpolation method.
@@ -186,7 +187,8 @@ namespace terrama2
           */
           AnalysisHashCode hashCode2(std::shared_ptr<te::dt::TimeInstantTZ> startDate) const
           {
-            if(!startDate)
+            auto boostDate = startDate->getTimeInstantTZ();
+            if(!startDate || boostDate.is_not_a_date_time())
               throw InvalidParameterException() << ErrorDescription(QObject::tr("Analysis %1 : Start date not set.").arg(id));
 
             std::string str = std::to_string(id) + startDate->toString();

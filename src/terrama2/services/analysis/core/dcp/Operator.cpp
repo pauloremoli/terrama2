@@ -31,6 +31,7 @@
 
 #include "Operator.hpp"
 #include "../Exception.hpp"
+#include "../ContextManager.hpp"
 #include "../../../../core/data-model/DataSetDcp.hpp"
 #include "../../../../core/data-model/Filter.hpp"
 #include "../../../../core/data-access/SynchronizedDataSet.hpp"
@@ -59,7 +60,8 @@ double terrama2::services::analysis::core::dcp::operatorImpl(StatisticOperation 
                                                              Buffer buffer, boost::python::list ids)
 {
   OperatorCache cache;
-
+  readInfoFromDict(cache);
+  auto context = ContextManager::getInstance().getMonitoredObjectContext(cache.analysisHashCode);
 
   // Inside Py_BEGIN_ALLOW_THREADS it's not allowed to return any value because it doesn' have the interpreter lock.
   // In case an exception is thrown, we need to set this boolean. Once the code left the lock is acquired we should return NAN.
@@ -67,26 +69,24 @@ double terrama2::services::analysis::core::dcp::operatorImpl(StatisticOperation 
 
   try
   {
-    readInfoFromDict(cache);
-
     // In case an error has already occurred, there is nothing to be done
-    if(!Context::getInstance().getErrors(cache.analysisHashCode).empty())
+    if(!context->getErrors().empty())
     {
       return NAN;
     }
 
     bool hasData = false;
 
-    auto dataManagerPtr = Context::getInstance().getDataManager().lock();
+    auto dataManagerPtr = context->getDataManager().lock();
     if(!dataManagerPtr)
     {
       QString errMsg(QObject::tr("Invalid data manager."));
       throw terrama2::core::InvalidDataManagerException() << terrama2::ErrorDescription(errMsg);
     }
 
-    AnalysisPtr analysis = Context::getInstance().getAnalysis(cache.analysisHashCode);
+    AnalysisPtr analysis = context->getAnalysis();
 
-    auto moDsContext = getMonitoredObjectContextDataSeries(cache.analysisHashCode, dataManagerPtr);
+    auto moDsContext = getMonitoredObjectContextDataSeries(context, dataManagerPtr);
     if(!moDsContext)
     {
       QString errMsg(QObject::tr("Could not recover monitored object data series."));
@@ -121,14 +121,14 @@ double terrama2::services::analysis::core::dcp::operatorImpl(StatisticOperation 
           throw InvalidDataSeriesException() << terrama2::ErrorDescription(errMsg);
         }
 
-        Context::getInstance().addDCPDataSeries(cache.analysisHashCode, dataSeries, "", true);
+        context->addDCPDataSeries(dataSeries, "", true);
 
         // For DCP operator count returns the number of DCP that influence the monitored object
         uint64_t influenceCount = 0;
 
         for(auto dataset : dataSeries->datasetList)
         {
-          dcpContextDataSeries = Context::getInstance().getContextDataset(cache.analysisHashCode, dataset->id);
+          dcpContextDataSeries = context->getContextDataset(dataset->id);
 
           terrama2::core::DataSetDcpPtr dcpDataset = std::dynamic_pointer_cast<const terrama2::core::DataSetDcp>(
                   dataset);
@@ -221,20 +221,20 @@ double terrama2::services::analysis::core::dcp::operatorImpl(StatisticOperation 
         cache.count = influenceCount;
 
       }
-      catch(terrama2::Exception e)
+      catch(const terrama2::Exception& e)
       {
-        Context::getInstance().addError(cache.analysisHashCode,  boost::get_error_info<terrama2::ErrorDescription>(e)->toStdString());
+        context->addError( boost::get_error_info<terrama2::ErrorDescription>(e)->toStdString());
         exceptionOccurred = true;
       }
-      catch(std::exception e)
+      catch(const std::exception& e)
       {
-        Context::getInstance().addError(cache.analysisHashCode, e.what());
+        context->addError(e.what());
         exceptionOccurred = true;
       }
       catch(...)
       {
         QString errMsg = QObject::tr("An unknown exception occurred.");
-        Context::getInstance().addError(cache.analysisHashCode, errMsg.toStdString());
+        context->addError(errMsg.toStdString());
         exceptionOccurred = true;
       }
 
@@ -252,20 +252,20 @@ double terrama2::services::analysis::core::dcp::operatorImpl(StatisticOperation 
 
     return getOperationResult(cache, statisticOperation);
   }
-  catch(terrama2::Exception e)
+  catch(const terrama2::Exception& e)
   {
-    Context::getInstance().addError(cache.analysisHashCode,  boost::get_error_info<terrama2::ErrorDescription>(e)->toStdString());
+    context->addError( boost::get_error_info<terrama2::ErrorDescription>(e)->toStdString());
     return NAN;
   }
-  catch(std::exception e)
+  catch(const std::exception& e)
   {
-    Context::getInstance().addError(cache.analysisHashCode, e.what());
+    context->addError(e.what());
     return NAN;
   }
   catch(...)
   {
     QString errMsg = QObject::tr("An unknown exception occurred.");
-    Context::getInstance().addError(cache.analysisHashCode, errMsg.toStdString());
+    context->addError(errMsg.toStdString());
     return NAN;
   }
 }

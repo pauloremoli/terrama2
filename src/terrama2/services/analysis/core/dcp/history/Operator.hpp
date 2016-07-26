@@ -33,6 +33,7 @@
 
 #include "../../BufferMemory.hpp"
 #include "../../PythonInterpreter.hpp"
+#include "../../Shared.hpp"
 
 // STL
 #include <string>

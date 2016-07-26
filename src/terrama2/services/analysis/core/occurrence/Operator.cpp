@@ -30,6 +30,7 @@
 
 
 #include "Operator.hpp"
+#include "../ContextManager.hpp"
 
 #include <QTextStream>
 
@@ -52,18 +53,16 @@ double terrama2::services::analysis::core::occurrence::operatorImpl(StatisticOpe
 {
 
   OperatorCache cache;
-
+  readInfoFromDict(cache);
   // Inside Py_BEGIN_ALLOW_THREADS it's not allowed to return any value because it doesn' have the interpreter lock.
   // In case an exception is thrown, we need to set this boolean. Once the code left the lock is acquired we should return NAN.
   bool exceptionOccurred = false;
-
+  auto context = ContextManager::getInstance().getMonitoredObjectContext(cache.analysisHashCode);
 
   try
   {
-    readInfoFromDict(cache);
-
     // In case an error has already occurred, there is nothing to be done
-    if(!Context::getInstance().getErrors(cache.analysisHashCode).empty())
+    if(!context->getErrors().empty())
     {
       return NAN;
     }
@@ -71,16 +70,18 @@ double terrama2::services::analysis::core::occurrence::operatorImpl(StatisticOpe
 
     bool hasData = false;
 
-    auto dataManagerPtr = Context::getInstance().getDataManager().lock();
+    auto dataManagerPtr = context->getDataManager().lock();
     if(!dataManagerPtr)
     {
       QString errMsg(QObject::tr("Invalid data manager."));
       throw terrama2::core::InvalidDataManagerException() << terrama2::ErrorDescription(errMsg);
     }
 
-    AnalysisPtr analysis = Context::getInstance().getAnalysis(cache.analysisHashCode);
+    AnalysisPtr analysis = context->getAnalysis();
 
-    std::shared_ptr<ContextDataSeries> moDsContext = getMonitoredObjectContextDataSeries(cache.analysisHashCode, dataManagerPtr);
+
+
+    std::shared_ptr<ContextDataSeries> moDsContext = getMonitoredObjectContextDataSeries(context, dataManagerPtr);
     if(!moDsContext)
     {
       QString errMsg(QObject::tr("Could not recover monitored object data series."));
@@ -125,14 +126,14 @@ double terrama2::services::analysis::core::occurrence::operatorImpl(StatisticOpe
         }
 
 
-        Context::getInstance().addDataSeries(cache.analysisHashCode, dataSeries, geomEnvelope, dateFilter, true);
+        context->addDataSeries(dataSeries, geomEnvelope, dateFilter, true);
 
         auto datasets = dataSeries->datasetList;
 
         for(auto dataset : datasets)
         {
 
-          contextDataSeries = Context::getInstance().getContextDataset(cache.analysisHashCode, dataset->id, dateFilter);
+          contextDataSeries = context->getContextDataset(dataset->id, dateFilter);
           if(!contextDataSeries)
           {
             continue;
@@ -267,20 +268,20 @@ double terrama2::services::analysis::core::occurrence::operatorImpl(StatisticOpe
 
         }
       }
-      catch(terrama2::Exception e)
+      catch(const terrama2::Exception& e)
       {
-        Context::getInstance().addError(cache.analysisHashCode,  boost::get_error_info<terrama2::ErrorDescription>(e)->toStdString());
+        context->addError( boost::get_error_info<terrama2::ErrorDescription>(e)->toStdString());
         exceptionOccurred = true;
       }
-      catch(std::exception e)
+      catch(const std::exception& e)
       {
-        Context::getInstance().addError(cache.analysisHashCode, e.what());
+        context->addError(e.what());
         exceptionOccurred = true;
       }
       catch(...)
       {
         QString errMsg = QObject::tr("An unknown exception occurred.");
-        Context::getInstance().addError(cache.analysisHashCode, errMsg.toStdString());
+        context->addError(errMsg.toStdString());
         exceptionOccurred = true;
       }
 
@@ -298,20 +299,20 @@ double terrama2::services::analysis::core::occurrence::operatorImpl(StatisticOpe
 
     return terrama2::services::analysis::core::getOperationResult(cache, statisticOperation);
   }
-  catch(terrama2::Exception e)
+  catch(const terrama2::Exception& e)
   {
-    Context::getInstance().addError(cache.analysisHashCode,  boost::get_error_info<terrama2::ErrorDescription>(e)->toStdString());
+    context->addError( boost::get_error_info<terrama2::ErrorDescription>(e)->toStdString());
     return NAN;
   }
-  catch(std::exception e)
+  catch(const std::exception& e)
   {
-    Context::getInstance().addError(cache.analysisHashCode, e.what());
+    context->addError(e.what());
     return NAN;
   }
   catch(...)
   {
     QString errMsg = QObject::tr("An unknown exception occurred.");
-    Context::getInstance().addError(cache.analysisHashCode, errMsg.toStdString());
+    context->addError(errMsg.toStdString());
     return NAN;
   }
 }

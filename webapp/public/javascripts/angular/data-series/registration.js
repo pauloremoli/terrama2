@@ -4,12 +4,10 @@ angular.module('terrama2.dataseries.registration', [
     'terrama2.components.messagebox', // handling alert box
     'ui.router',
     'mgo-angular-wizard', // wizard
-    'ui.bootstrap.datetimepicker',
-    'ui.dateTimeInput',
     'schemaForm',
     'xeditable',
-    'terrama2.schedule'
-    // 'terrama2.components.datetimepicker'
+    'terrama2.schedule',
+    'terrama2.datetimepicker'
   ])
   .config(["$stateProvider", "$urlRouterProvider", function($stateProvider, $urlRouterProvider) {
     $stateProvider.state('main', {
@@ -54,22 +52,22 @@ angular.module('terrama2.dataseries.registration', [
     $scope.dataProvidersStorager = [];
 
     var removeInput = function(dcpMask) {
-      $scope.inputDataSets.forEach(function(dcp, pcdIndex, array) {
+      $scope.inputDataSets.some(function(dcp, pcdIndex, array) {
         // todo: which fields should compare to remove?
         if (dcp.mask === dcpMask) {
           array.splice(pcdIndex, 1);
-          return;
+          return true;
         }
       });
     };
 
     $scope.removePcdStorager = function(dcpItem) {
-      $scope.dcpsStorager.forEach(function(dcp, pcdIndex, array) {
+      $scope.dcpsStorager.some(function(dcp, pcdIndex, array) {
         // todo: which fields should compare to remove?
         if (dcp.id === dcpItem.id) {
           array.splice(pcdIndex, 1);
           $scope.$emit("storagerDcpRemoved", dcpItem);
-          return;
+          return true;
         }
       });
     };
@@ -92,12 +90,11 @@ angular.module('terrama2.dataseries.registration', [
       }
     };
 
-    $scope.$on("requestStorageValues", function(event) {
+    $scope.$on("requestStorageValues", function() {
       // apply a validation
       $scope.$broadcast('schemaFormValidate');
-      var form = angular.element('form[name="storagerForm"]').scope()['storagerForm'];
-      var dataForm = angular.element('form[name="storagerDataForm"]').scope()['storagerDataForm'];
-      if (form.$valid && dataForm.$valid) {
+
+      if ($scope.forms.storagerForm.$valid && $scope.forms.storagerDataForm.$valid) {
         // checking if it is a dcp
         switch ($scope.formatSelected.data_series_type_name) {
           case "DCP":
@@ -124,7 +121,7 @@ angular.module('terrama2.dataseries.registration', [
             break;
         }
       } else {
-        angular.forEach(dataForm.$error, function (field) {
+        angular.forEach($scope.forms.storagerDataForm.$error, function (field) {
           angular.forEach(field, function(errorField){
             errorField.$setDirty();
           })
@@ -287,6 +284,7 @@ angular.module('terrama2.dataseries.registration', [
       $scope.form = [];
       $scope.model = {};
 
+      $scope.forms = {};
       $scope.isDynamic = configuration.dataSeriesType === "dynamic";
 
       $scope.service = {};
@@ -296,7 +294,7 @@ angular.module('terrama2.dataseries.registration', [
       $scope.filterArea = '1';
       $scope.$on('updateFilterArea', function(event, filterValue) {
         $scope.filterArea = filterValue;
-      })
+      });
 
       // terrama2 messagebox
       $scope.errorFound = false;
@@ -332,35 +330,29 @@ angular.module('terrama2.dataseries.registration', [
           if (fmt.hasOwnProperty(k)) {
             // checking if a number
             if (isNaN(fmt[k]))
-              output[k] = fmt[k]
+              output[k] = fmt[k];
             else
               output[k] = parseInt(fmt[k])
           }
         }
         return output;
-      }
+      };
 
       $scope.tryParseInt = function(value) {
         if (isNaN(value))
           return value;
         return parseInt(value);
-      }
+      };
 
 
       // wizard helper
-      var isWizardStepValid = function(formName, isSchemaForm) {
-        // todo: temp code. It is a "trick" for getting undefined form in scope. It must be changed
-        var form = angular.element('form[name="'+ formName + '"]').scope()[formName];
-
+      var isWizardStepValid = function(form, isSchemaForm) {
+        $scope.$broadcast('formFieldValidation');
         if (isSchemaForm == true) {
           $scope.$broadcast('schemaFormValidate');
         }
 
-        if (form.$valid)
-          return true;
-
-        FormHelper(form);
-        return false;
+        return form.$valid;
       };
 
       // intersection
@@ -379,7 +371,7 @@ angular.module('terrama2.dataseries.registration', [
           intersection.attributes = [];
           intersection.selected = false;
         }
-      }
+      };
 
       $scope.addAttribute = function(form, selected, attributeValue) {
         if (form.$invalid) {
@@ -394,7 +386,7 @@ angular.module('terrama2.dataseries.registration', [
 
         var found = attributes.filter(function(elm) {
           return elm === attributeValue;
-        })
+        });
 
         if (found.length === 0) {
           // check first: if has at least 1 attribute, mark as selected
@@ -419,7 +411,7 @@ angular.module('terrama2.dataseries.registration', [
             arr.splice(index, 1);
             return true;
           }
-        })
+        });
 
         if (intersection.attributes.length === 0)
           $scope.intersection[selected.id].selected = false;
@@ -436,17 +428,17 @@ angular.module('terrama2.dataseries.registration', [
 
         // emit row click
         $scope.onIntersectionDataSeriesClick(dataSeries);
-      }
+      };
 
       // filters
       $scope.intersectionDataSeries = function(dataSeries) {
         return (dataSeries.data_series_semantics.data_series_type_name == globals.enums.DataSeriesType.STATIC_DATA ||
                 dataSeries.data_series_semantics.data_series_type_name == globals.enums.DataSeriesType.GRID)
-      }
+      };
 
       $scope.onFilterRegion = function() {
         $scope.filter.area={};
-      }
+      };
 
       // storager
       $scope.showStoragerForm = false;
@@ -491,7 +483,7 @@ angular.module('terrama2.dataseries.registration', [
 
       // Wizard validations
       $scope.isFirstStepValid = function(obj) {
-        this["wzData"].error = !isWizardStepValid("generalDataForm");
+        this["wzData"].error = !isWizardStepValid($scope.forms.generalDataForm);
         return true;
       };
 
@@ -500,18 +492,20 @@ angular.module('terrama2.dataseries.registration', [
           if ($scope.dcps.length === 0) {
             // todo: display alert box
             console.log("it should have at least one dcp");
+            $scope.alertBox.message = i18n.__("It should have at least one dcp");
+            $scope.display = true;
             this["wzData"].error = true;
             return true;
           } else {
             this["wzData"].error = false;
             return true;
           }
-        this["wzData"].error = !isWizardStepValid("parametersForm", true);
+        this["wzData"].error = !isWizardStepValid($scope.forms.parametersForm, true);
         return true;
       };
 
       $scope.isThirdStepValid = function(obj) {
-        this["wzData"].error = !isWizardStepValid("storagerForm");
+        this["wzData"].error = !isWizardStepValid($scope.forms.storagerForm);
         return true;
       };
       //. end wizard validations
@@ -527,25 +521,6 @@ angular.module('terrama2.dataseries.registration', [
       $scope.handlePreAnalysisFilter = function(selected) {
         $scope.filter.pre_analysis = {};
         $scope.radioPreAnalysis = selected;
-      };
-      // filter helpers
-      $scope.beforeRenderStartDate = function($view, $dates, $leftDate, $upDate, $rightDate) {
-        if ($scope.filter.date.afterDate) {
-          var activeDate = moment($scope.filter.date.afterDate);
-          for (var i = 0; i < $dates.length; i++) {
-            if ($dates[i].localDateValue() >= activeDate.valueOf()) $dates[i].selectable = false;
-          }
-        }
-      };
-      $scope.beforeRenderEndDate = function($view, $dates, $leftDate, $upDate, $rightDate) {
-        if ($scope.filter.date.beforeDate) {
-          var activeDate = moment($scope.filter.date.beforeDate).subtract(1, $view).add(1, 'minute');
-          for (var i = 0; i < $dates.length; i++) {
-            if ($dates[i].localDateValue() <= activeDate.valueOf()) {
-              $dates[i].selectable = false;
-            }
-          }
-        }
       };
 
       // fill out interface with values
@@ -613,7 +588,7 @@ angular.module('terrama2.dataseries.registration', [
                   data_series: ds,
                   attributes: attrs,
                   selected: true
-                }
+                };
                 return true;
               }
             });
@@ -714,6 +689,11 @@ angular.module('terrama2.dataseries.registration', [
                 $scope.dataProviders.push(dataProvider);
             })
           });
+
+          if (!$scope.isUpdating)
+            if ($scope.dataProviders.length > 0) {
+              $scope.dataSeries.data_provider_id = $scope.dataProviders[0].id.toString();
+            }
 
           $scope.tableFields = [];
           // building table fields. Check if form is for all ('*')
@@ -846,22 +826,18 @@ angular.module('terrama2.dataseries.registration', [
       };
 
       $scope.save = function() {
-        var generalDataForm = angular.element('form[name="generalDataForm"]').scope().generalDataForm;
-        if(generalDataForm.$invalid) {
-          FormHelper(generalDataForm);
+        $scope.$broadcast('formFieldValidation');
+        if($scope.forms.generalDataForm.$invalid) {
           return;
         }
         // checking parameters form (semantics) is invalid
-        var parametersForm = angular.element('form[name="parametersForm"]').scope().parametersForm;
-        if ($scope.dcps.length === 0 && !isValidParametersForm(parametersForm)) {
-          FormHelper(parametersForm);
+        if ($scope.dcps.length === 0 && !isValidParametersForm($scope.forms.parametersForm)) {
           return;
         }
 
         if ($scope.isDynamic) {
-          var scheduleForm = angular.element('form[name="scheduleForm"]').scope().scheduleForm;
+          var scheduleForm = angular.element('form[name="scheduleForm"]').scope()['scheduleForm'];
           if (scheduleForm.$invalid) {
-            FormHelper(scheduleForm);
             return;
           }
         }
@@ -963,10 +939,15 @@ angular.module('terrama2.dataseries.registration', [
           // adjusting time without timezone
           var filterValues = Object.assign({}, $scope.filter);
           if (filterValues.date) {
-            if (filterValues.date.afterDate)
-              filterValues.date.afterDate = new Date(filterValues.date.afterDate.getTime() - filterValues.date.afterDate.getTimezoneOffset()).toString();
-            if (filterValues.date.beforeDate)
-              filterValues.date.beforeDate = new Date(filterValues.date.beforeDate.getTime() - filterValues.date.beforeDate.getTimezoneOffset()).toString();
+            if (filterValues.date.afterDate) {
+              var afterMomentDate = filterValues.date.afterDate.toDate();
+              filterValues.date.afterDate = new Date(afterMomentDate.getTime() - afterMomentDate.getTimezoneOffset()).toString();
+            }
+
+            if (filterValues.date.beforeDate) {
+              var beforeMomentDate = filterValues.date.beforeDate.toDate();
+              filterValues.date.beforeDate = new Date(beforeMomentDate.getTime() - beforeMomentDate.getTimezoneOffset()).toString();
+            }
           }
 
           var scheduleValues = Object.assign({}, $scope.schedule);
@@ -1089,7 +1070,6 @@ angular.module('terrama2.dataseries.registration', [
                 })
               }
             }
-
 
             var outputDataSeries = {
               name: dSeriesName,

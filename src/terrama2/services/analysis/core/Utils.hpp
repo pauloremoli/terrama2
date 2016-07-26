@@ -113,16 +113,16 @@ namespace terrama2
           \return The interest area strategy for the box of the output grid.
          */
         const std::unordered_map<terrama2::core::DataSetGridPtr, std::shared_ptr<te::rst::Raster> > getGridMap(DataManagerPtr dataManager, DataSeriesId dataSeriesId);
+//TODO: remove older gridMap
+        std::unordered_multimap<terrama2::core::DataSetGridPtr, std::shared_ptr<te::rst::Raster> > getGridMap2(DataManagerPtr dataManager, DataSeriesId dataSeriesId);
 
 
         /*
           \brief Returns a map with the parameters to create the output raster.
 
-          \param analysisHashCode Analysis hashcode.
-
           \return The map with the parameters to create the output raster.
          */
-        std::map<std::string, std::string> getOutputRasterInfo(DataManagerPtr dataManager, AnalysisHashCode analysisHashCode);
+        std::tuple<te::rst::Grid*, const std::vector<te::rst::BandProperty*> > getOutputRasterInfo(std::map<std::string, std::string> rinfo);
 
         std::shared_ptr<te::rst::Raster> reprojectRaster(std::shared_ptr<te::rst::Raster> inputRaster, std::map<std::string, std::string> outputRasterInfo, InterpolationMethod method);
 

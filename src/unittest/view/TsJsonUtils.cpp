@@ -27,12 +27,151 @@
   \author Vinicius Campanha
 */
 
+#include <terralib/se.h>
+
 //TerraMA2
 #include "TsJsonUtils.hpp"
 
 #include <terrama2/services/view/core/JSonUtils.hpp>
 #include <terrama2/core/utility/TimeUtils.hpp>
 
+
+te::se::Stroke* CreateStroke(te::se::Graphic* graphicFill,
+                             const std::string& width, const std::string& opacity,
+                             const std::string& dasharray, const std::string& linecap, const std::string& linejoin)
+{
+  te::se::Stroke* stroke = new te::se::Stroke;
+
+  if(graphicFill)
+    stroke->setGraphicFill(graphicFill);
+
+  if(!width.empty())
+    stroke->setWidth(width);
+
+  if(!opacity.empty())
+    stroke->setOpacity(opacity);
+
+  if(!dasharray.empty())
+    stroke->setDashArray(dasharray);
+
+  if(!linecap.empty())
+    stroke->setLineCap(linecap);
+
+  if(!linejoin.empty())
+    stroke->setLineJoin(linecap);
+
+  return stroke;
+}
+
+te::se::Stroke* CreateStroke(const std::string& color, const std::string& width,
+                             const std::string& opacity, const std::string& dasharray,
+                             const std::string& linecap, const std::string& linejoin)
+{
+  te::se::Stroke* stroke = CreateStroke(0, width, opacity, dasharray, linecap, linejoin);
+
+  if(!color.empty())
+    stroke->setColor(color);
+
+  return stroke;
+}
+
+te::se::Fill* CreateFill(const std::string& color, const std::string& opacity)
+{
+  te::se::Fill* fill = new te::se::Fill;
+
+  if(!color.empty())
+    fill->setColor(color);
+
+  if(!opacity.empty())
+    fill->setOpacity(opacity);
+
+  return fill;
+}
+
+te::se::Symbolizer* getSymbolizer(const te::gm::GeomType& geomType)
+{
+  switch(geomType)
+  {
+    case te::gm::PolygonType:
+    case te::gm::PolygonMType:
+    case te::gm::PolygonZType:
+    case te::gm::PolygonZMType:
+    case te::gm::MultiPolygonType:
+    case te::gm::MultiPolygonMType:
+    case te::gm::MultiPolygonZType:
+    case te::gm::MultiPolygonZMType:
+    case te::gm::MultiSurfaceType:
+    case te::gm::MultiSurfaceMType:
+    case te::gm::MultiSurfaceZType:
+    case te::gm::MultiSurfaceZMType:
+    {
+      te::se::Fill* fill = CreateFill("#5e5eeb", "100");
+      te::se::Stroke* stroke = CreateStroke("#000000", "1", "", "", "", "");
+      te::se::PolygonSymbolizer* symbolizer = new te::se::PolygonSymbolizer;
+      symbolizer->setFill(fill);
+      symbolizer->setStroke(stroke);
+      return symbolizer;
+    }
+
+    case te::gm::LineStringType:
+    case te::gm::LineStringMType:
+    case te::gm::LineStringZType:
+    case te::gm::LineStringZMType:
+    case te::gm::MultiLineStringType:
+    case te::gm::MultiLineStringMType:
+    case te::gm::MultiLineStringZType:
+    case te::gm::MultiLineStringZMType:
+    {
+      te::se::Stroke* stroke = CreateStroke("#000000", "1", "", "", "", "");
+      te::se::LineSymbolizer* symbolizer = new te::se::LineSymbolizer;
+      symbolizer->setStroke(stroke);
+      return symbolizer;
+    }
+
+    case te::gm::PointType:
+    case te::gm::PointMType:
+    case te::gm::PointZType:
+    case te::gm::PointZMType:
+    case te::gm::MultiPointType:
+    case te::gm::MultiPointMType:
+    case te::gm::MultiPointZType:
+    case te::gm::MultiPointZMType:
+    {
+      te::se::Fill* markFill = CreateFill("#5e5eeb", "1.0");
+      te::se::Stroke* markStroke = CreateStroke("#000000", "1", "", "", "", "");
+      te::se::Mark* mark = CreateMark("circle", markStroke, markFill);
+      te::se::Graphic* graphic = CreateGraphic(mark, "12", "", "");
+      te::se::PointSymbolizer* symbolizer = new te::se::PointSymbolizer;
+      symbolizer->setGraphic(graphic);
+
+      return symbolizer;
+    }
+
+    default:
+      return nullptr;
+  }
+}
+
+te::se::Style* CreateFeatureTypeStyle(const te::gm::GeomType& geomType)
+{
+  te::se::Symbolizer* symbolizer = getSymbolizer(geomType);
+
+  te::se::Rule* rule = new te::se::Rule;
+
+  if(symbolizer != 0)
+    rule->push_back(symbolizer);
+
+  te::se::FeatureTypeStyle* style = new te::se::FeatureTypeStyle;
+  style->push_back(rule);
+
+  style->setName(new std::string("Style 1"));
+//  style->setDescription("description");
+  style->setFeatureTypeName(new std::string("Featuretypemname"));
+  std::string version = "1";
+  style->setVersion(version);
+
+  return style;
+}
 
 void TsJsonUtils::testGoNBackJSon()
 {
@@ -70,6 +209,8 @@ void TsJsonUtils::testGoNBackJSon()
     view->dataSeriesList.push_back(3);
     view->dataSeriesList.push_back(4);
 
+    view->stylesPerDataSeries.emplace(2, std::unique_ptr<te::se::Style>(CreateFeatureTypeStyle(te::gm::PolygonType)));
+
     QJsonObject obj = terrama2::services::view::core::toJson(viewPtr);
 
     terrama2::services::view::core::ViewPtr viewBackPtr = terrama2::services::view::core::fromViewJson(obj);
@@ -94,13 +235,35 @@ void TsJsonUtils::testGoNBackJSon()
 
     QCOMPARE(viewBackPtr->filtersPerDataSeries.size(), viewPtr->filtersPerDataSeries.size());
 
-    for(auto& it : viewPtr->filtersPerDataSeries)
+    // TODO: enable when convert filter/json is implemented
+/*    for(auto& it : viewPtr->filtersPerDataSeries)
     {
-      // TODO: enable when convert filter/json is implemented
-//      QCOMPARE(*viewBackPtr->filtersPerDataSeries.at(it.first).discardBefore, *it.second.discardBefore);
-//      QCOMPARE(*viewBackPtr->filtersPerDataSeries.at(it.first).discardAfter, *it.second.discardAfter);
+      QCOMPARE(*viewBackPtr->filtersPerDataSeries.at(it.first).discardBefore, *it.second.discardBefore);
+      QCOMPARE(*viewBackPtr->filtersPerDataSeries.at(it.first).discardAfter, *it.second.discardAfter);
+    }
+*/
+    QCOMPARE(viewBackPtr->stylesPerDataSeries.size(), viewPtr->stylesPerDataSeries.size());
+
+    for(auto& it : viewPtr->stylesPerDataSeries)
+    {
+      QCOMPARE(*viewBackPtr->stylesPerDataSeries.at(it.first)->getName(), *it.second->getName());
+      QCOMPARE(viewBackPtr->stylesPerDataSeries.at(it.first)->getVersion(), it.second->getVersion());
     }
 
+
+  }
+  catch(terrama2::Exception& e)
+  {
+    QString message(*boost::get_error_info<terrama2::ErrorDescription>(e));
+    QFAIL(message.toStdString().c_str());
+  }
+  catch(boost::exception& e)
+  {
+    QFAIL(boost::diagnostic_information(e).c_str());
+  }
+  catch(std::exception& e)
+  {
+    QFAIL(e.what());
   }
   catch(...)
   {

@@ -35,6 +35,7 @@
 #include "../PythonInterpreter.hpp"
 #include "../BufferMemory.hpp"
 #include "../Analysis.hpp"
+#include "../GridContext.hpp"
 
 // STL
 #include <string>

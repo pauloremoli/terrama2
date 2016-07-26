@@ -32,7 +32,6 @@
 
 
 #include "PythonInterpreter.hpp"
-#include "Context.hpp"
 
 // STL
 #include <memory>

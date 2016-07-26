@@ -28,6 +28,7 @@
 */
 
 #include "Operator.hpp"
+#include "../ContextManager.hpp"
 #include "../../../../core/data-model/DataSetGrid.hpp"
 #include "../Utils.hpp"
 
@@ -37,28 +38,21 @@
 double terrama2::services::analysis::core::grid::sample(const std::string& dataSeriesName)
 {
   OperatorCache cache;
+  readInfoFromDict(cache);
+
+  auto context = ContextManager::getInstance().getGridContext(cache.analysisHashCode);
 
   try
   {
-    readInfoFromDict(cache);
-
     // In case an error has already occurred, there is nothing to be done
-    if(!Context::getInstance().getErrors(cache.analysisHashCode).empty())
+    if(!context->getErrors().empty())
     {
       return NAN;
     }
 
-    auto dataManagerPtr = Context::getInstance().getDataManager().lock();
-    if(!dataManagerPtr)
-    {
-      QString errMsg(QObject::tr("Invalid data manager."));
-      throw terrama2::core::InvalidDataManagerException() << terrama2::ErrorDescription(errMsg);
-    }
-
-    AnalysisPtr analysis = Context::getInstance().getAnalysis(cache.analysisHashCode);
-
-    auto dataSeries = dataManagerPtr->findDataSeries(analysis->id, dataSeriesName);
-
+    //FIXME: PAULO: This is beeing called to many times, can this be avoided?
+    // ps: O(n) processing time to get the name, if the id would be used O(c) can be achieved
+    auto dataSeries = context->findDataSeries(dataSeriesName);
     if(!dataSeries)
     {
       QString errMsg(QObject::tr("Could not find a data series with the given name: %1"));
@@ -66,73 +60,47 @@ double terrama2::services::analysis::core::grid::sample(const std::string& dataS
       throw InvalidDataSeriesException() << terrama2::ErrorDescription(errMsg);
     }
 
-    auto outputRaster = Context::getInstance().getOutputRaster(cache.analysisHashCode);
+    auto outputRaster = context->getOutputRaster();
     if(!outputRaster)
     {
       QString errMsg(QObject::tr("Invalid output raster"));
       throw terrama2::InvalidArgumentException() << terrama2::ErrorDescription(errMsg);
     }
 
-    auto outputGridConfig = getOutputRasterInfo(dataManagerPtr, cache.analysisHashCode);
-
     auto grid = outputRaster->getGrid();
-    auto coord = grid->gridToGeo(cache.row, cache.row);
-
+    auto coord = grid->gridToGeo(cache.column, cache.row);
 
     auto datasets = dataSeries->datasetList;
-
     for(auto dataset : datasets)
     {
 
-      auto raster = Context::getInstance().getRaster(cache.analysisHashCode, dataset->id);
-
-      if(!raster)
+      auto rasterList = context->getRasterList(dataSeries, dataset->id);
+      if(rasterList.size() > 1)
       {
-        // First call, need to call sample for each dataset raster and store the result in the context.
-        auto gridMap = getGridMap(dataManagerPtr, dataSeries->id);
-
-        if(gridMap.empty())
-        {
-          continue;
-        }
-
-        auto it = gridMap.begin();
-        while(it != gridMap.end())
-        {
-          auto datasetGrid = it->first;
-          auto dsRaster = it->second;
-
-          if(!dsRaster)
-          {
-            QString errMsg(QObject::tr("Invalid raster for dataset: %1").arg(datasetGrid->id));
-            throw terrama2::InvalidArgumentException() << terrama2::ErrorDescription(errMsg);
-          }
-
-          auto reprojectedRaster = reprojectRaster(dsRaster, outputGridConfig, analysis->outputGridPtr->interpolationMethod);
-
-          Context::getInstance().addRaster(cache.analysisHashCode, dataset->id, reprojectedRaster);
-          it++;
-        }
+        //FIXME: should not happen, throw?
+        assert(0);
       }
 
-      raster = Context::getInstance().getRaster(cache.analysisHashCode, dataset->id);
-
-      if(!raster)
+      if(rasterList.empty())
       {
         QString errMsg(QObject::tr("Invalid raster for dataset: %1").arg(dataset->id));
         throw terrama2::InvalidArgumentException() << terrama2::ErrorDescription(errMsg);
       }
 
+      auto raster = rasterList.front();
       auto dsGrid = raster->getGrid();
-
       if(!dsGrid)
       {
         QString errMsg(QObject::tr("Invalid grid for dataset: %1").arg(dataset->id));
         throw terrama2::InvalidArgumentException() << terrama2::ErrorDescription(errMsg);
       }
 
+      // Tranform the coordinate from the output srid to the  source srid
+      // so we can get the row and column of the source data.
+      auto point = context->convertoTo(coord, dsGrid->getSRID());
+
       double column, row;
-      dsGrid->geoToGrid(coord.getX(), coord.getY(), column, row);
+      dsGrid->geoToGrid(point.x, point.y, column, row);
 
       if(!grid->isPointInGrid(column, row))
       {
@@ -140,7 +108,7 @@ double terrama2::services::analysis::core::grid::sample(const std::string& dataS
       }
 
       double value;
-      raster->getValue((unsigned int)column, (unsigned int)row, value);
+      raster->getValue(column, row, value);
 
       return value;
     }
@@ -149,18 +117,18 @@ double terrama2::services::analysis::core::grid::sample(const std::string& dataS
   }
   catch(terrama2::Exception e)
   {
-    Context::getInstance().addError(cache.analysisHashCode,  boost::get_error_info<terrama2::ErrorDescription>(e)->toStdString());
+    context->addError(boost::get_error_info<terrama2::ErrorDescription>(e)->toStdString());
     return NAN;
   }
   catch(std::exception e)
   {
-    Context::getInstance().addError(cache.analysisHashCode, e.what());
+    context->addError(e.what());
     return NAN;
   }
   catch(...)
   {
     QString errMsg = QObject::tr("An unknown exception occurred.");
-    Context::getInstance().addError(cache.analysisHashCode, errMsg.toStdString());
+    context->addError(errMsg.toStdString());
     return NAN;
   }
 }

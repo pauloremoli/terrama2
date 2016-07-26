@@ -28,7 +28,6 @@
 */
 
 #include "DataManager.hpp"
-#include "Context.hpp"
 #include "Utils.hpp"
 #include "../../../core/Exception.hpp"
 #include "../../../core/data-model/Filter.hpp"
@@ -41,6 +40,8 @@
 // TerraLib
 #include <terralib/common/StringUtils.h>
 #include <terralib/raster/Reprojection.h>
+#include <terralib/memory/Raster.h>
+#include <terralib/rp/Functions.h>
 
 // QT
 #include <QObject>
@@ -171,290 +172,98 @@ const std::unordered_map<terrama2::core::DataSetGridPtr, std::shared_ptr<te::rst
   return gridSeries->gridMap();
 }
 
-std::map<std::string, std::string> terrama2::services::analysis::core::getOutputRasterInfo(DataManagerPtr dataManager, AnalysisHashCode analysisHashCode)
+std::unordered_multimap<terrama2::core::DataSetGridPtr, std::shared_ptr<te::rst::Raster> >
+terrama2::services::analysis::core::getGridMap2(DataManagerPtr dataManager, DataSeriesId dataSeriesId)
 {
-  auto analysis = Context::getInstance().getAnalysis(analysisHashCode);
-
-  if(!analysis->outputGridPtr)
+  auto dataSeriesPtr = dataManager->findDataSeries(dataSeriesId);
+  if(!dataSeriesPtr)
   {
-    QString errMsg(QObject::tr("Invalid analysis output grid configuration."));
-    throw terrama2::core::InvalidDataManagerException() << terrama2::ErrorDescription(errMsg);
+    QString errMsg = QObject::tr("Could not recover data series: %1.").arg(dataSeriesId);
+    throw terrama2::InvalidArgumentException() << ErrorDescription(errMsg);
   }
 
-  if(!dataManager)
+  auto dataProviderPtr = dataManager->findDataProvider(dataSeriesPtr->dataProviderId);
+
+  terrama2::core::DataAccessorPtr accessor = terrama2::core::DataAccessorFactory::getInstance().make(dataProviderPtr, dataSeriesPtr);
+  std::shared_ptr<terrama2::core::DataAccessorGrid> accessorGrid = std::dynamic_pointer_cast<terrama2::core::DataAccessorGrid>(accessor);
+  terrama2::core::Filter filter;
+  filter.lastValue = true;
+  auto gridSeries = accessorGrid->getGridSeries(filter);
+
+  if(!gridSeries)
   {
-    QString errMsg(QObject::tr("Invalid data manager."));
-    throw terrama2::core::InvalidDataManagerException() << terrama2::ErrorDescription(errMsg);
+    QString errMsg = QObject::tr("Invalid grid series for data series: %1.").arg(dataSeriesId);
+    throw terrama2::InvalidArgumentException() << ErrorDescription(errMsg);
   }
 
-  double resX = 0;
-  double resY = 0;
-  unsigned int nRows = 0;
-  unsigned int nCols = 0;
-  Srid srid = 0;
-  std::shared_ptr<te::gm::Envelope> box(new te::gm::Envelope());
+  return gridSeries->gridMap2();
+}
 
+std::tuple<te::rst::Grid*, const std::vector<te::rst::BandProperty*> >
+terrama2::services::analysis::core::getOutputRasterInfo(std::map<std::string, std::string> rinfo)
+{
+  auto ncols = static_cast<uint>(std::stoi(rinfo["MEM_RASTER_NCOLS"]));
+  auto nrows = static_cast<uint>(std::stoi(rinfo["MEM_RASTER_NROWS"]));
+  auto srid = std::stoi(rinfo["MEM_RASTER_SRID"]);
 
-  switch(analysis->outputGridPtr->interestAreaType)
+  double minx = std::stod(rinfo["MEM_RASTER_MIN_X"]);
+  double miny = std::stod(rinfo["MEM_RASTER_MIN_Y"]);
+  double maxx = std::stod(rinfo["MEM_RASTER_MAX_X"]);
+  double maxy = std::stod(rinfo["MEM_RASTER_MAX_Y"]);
+  double resx = std::stod(rinfo["MEM_RASTER_RES_X"]);
+  double resy = std::stod(rinfo["MEM_RASTER_RES_Y"]);
+
+  te::gm::Envelope* mbr = new te::gm::Envelope(minx, miny, maxx, maxy);
+
+  auto grid = new te::rst::Grid(ncols, nrows, resx, resy, mbr, srid);
+
+  std::vector<te::rst::BandProperty*> bands;
+  auto dt = std::stoi(rinfo["MEM_RASTER_DATATYPE"]);
+  std::size_t nbands = static_cast<std::size_t>(std::stoi(rinfo["MEM_RASTER_NBANDS"]));
+  for(std::size_t b = 0; b < nbands; ++b)
   {
-    case InterestAreaType::UNION:
-    {
-      for(auto analysisDataSeries : analysis->analysisDataSeriesList)
-      {
-        try
-        {
-          auto gridMap = getGridMap(dataManager, analysisDataSeries.dataSeriesId);
+    te::rst::BandProperty* ibprop = new te::rst::BandProperty(b, dt);
 
-          if(gridMap.empty())
-          {
-            QString errMsg = QObject::tr("Could not recover grid for data series: %1.").arg(analysis->outputGridPtr->resolutionDataSeriesId);
-            throw terrama2::InvalidArgumentException() << ErrorDescription(errMsg);
-          }
+    ibprop->m_blkh = 1;
+    ibprop->m_blkw = ncols;
+    ibprop->m_nblocksx = 1;
+    ibprop->m_nblocksy = nrows;
 
-          auto raster = gridMap.begin()->second;
-          if(!raster)
-          {
-            QString errMsg = QObject::tr("Could not recover raster for dataset: %1.").arg(gridMap.begin()->first->id);
-            throw terrama2::InvalidArgumentException() << ErrorDescription(errMsg);
-          }
-
-          if(srid == 0)
-          {
-            box->Union(*raster->getExtent());
-            srid = raster->getSRID();
-            continue;
-          }
-
-          std::shared_ptr<te::gm::Geometry> geomBox(te::gm::GetGeomFromEnvelope(raster->getExtent(), raster->getSRID()));
-          if(raster->getSRID() != srid)
-          {
-            geomBox->transform(srid);
-          }
-
-          box->Union(*geomBox->getMBR());
-        }
-        catch(terrama2::core::NoDataException e)
-        {
-          continue;
-        }
-      }
-      break;
-    }
-    case InterestAreaType::SAME_FROM_DATASERIES:
-    {
-      try
-      {
-        auto gridMap = getGridMap(dataManager, analysis->outputGridPtr->interestAreaDataSeriesId);
-        if(gridMap.empty())
-        {
-          QString errMsg = QObject::tr("Could not recover grid for data series: %1.").arg(analysis->outputGridPtr->resolutionDataSeriesId);
-          throw terrama2::InvalidArgumentException() << ErrorDescription(errMsg);
-        }
-
-        auto raster = gridMap.begin()->second;
-        if(!raster)
-        {
-          QString errMsg = QObject::tr("Could not recover raster for dataset: %1.").arg(gridMap.begin()->first->id);
-          throw terrama2::InvalidArgumentException() << ErrorDescription(errMsg);
-        }
-
-        box->Union(*raster->getExtent());
-        srid = raster->getSRID();
-      }
-      catch(terrama2::core::NoDataException e)
-      {
-      }
-
-      break;
-    }
-    case InterestAreaType::CUSTOM:
-    {
-      box->Union(*analysis->outputGridPtr->interestAreaBox->getMBR());
-      srid = analysis->outputGridPtr->interestAreaBox->getSRID();
-      break;
-    }
+    bands.push_back(ibprop);
   }
 
-  switch(analysis->outputGridPtr->resolutionType)
-  {
-    case ResolutionType::SAME_FROM_DATASERIES:
-    {
-      try
-      {
-        auto gridMap = getGridMap(dataManager, analysis->outputGridPtr->resolutionDataSeriesId);
-        if(gridMap.empty())
-        {
-          QString errMsg = QObject::tr("Could not recover grid for data series: %1.").arg(analysis->outputGridPtr->resolutionDataSeriesId);
-          throw terrama2::InvalidArgumentException() << ErrorDescription(errMsg);
-        }
-
-        auto raster = gridMap.begin()->second;
-        if(!raster)
-        {
-          QString errMsg = QObject::tr("Could not recover raster for dataset: %1.").arg(gridMap.begin()->first->id);
-          throw terrama2::InvalidArgumentException() << ErrorDescription(errMsg);
-        }
-
-        resX = raster->getResolutionX();
-        resY = raster->getResolutionY();
-      }
-      catch(terrama2::core::NoDataException e)
-      {
-      }
-
-      break;
-    }
-    case ResolutionType::BIGGEST_GRID:
-    {
-
-      double  pixelArea = 0;
-      for(auto analysisDataSeries : analysis->analysisDataSeriesList)
-      {
-        try
-        {
-          auto gridMap = getGridMap(dataManager, analysisDataSeries.dataSeriesId);
-
-          if(gridMap.empty())
-          {
-            QString errMsg = QObject::tr("Could not recover grid for data series: %1.").arg(analysis->outputGridPtr->resolutionDataSeriesId);
-            throw terrama2::InvalidArgumentException() << ErrorDescription(errMsg);
-          }
-
-          auto raster = gridMap.begin()->second;
-          if(!raster)
-          {
-            QString errMsg = QObject::tr("Could not recover raster for dataset: %1.").arg(gridMap.begin()->first->id);
-            throw terrama2::InvalidArgumentException() << ErrorDescription(errMsg);
-          }
-
-          // Calculates the area of the pixel
-          double area = raster->getResolutionX() * raster->getResolutionY();
-          if(area >= pixelArea)
-          {
-            // In case the area is the same, gives priority to the greater in X.
-            if(area == pixelArea)
-            {
-              if(raster->getResolutionX() > resX)
-              {
-                resX = raster->getResolutionX();
-                resY = raster->getResolutionY();
-                pixelArea = area;
-              }
-            }
-            else
-            {
-              resX = raster->getResolutionX();
-              resY = raster->getResolutionY();
-              pixelArea = area;
-            }
-          }
-        }
-        catch(terrama2::core::NoDataException e)
-        {
-          continue;
-        }
-      }
-      break;
-    }
-    case ResolutionType::SMALLEST_GRID:
-    {
-
-      double  pixelArea = std::numeric_limits<double>::max();
-      for(auto analysisDataSeries : analysis->analysisDataSeriesList)
-      {
-        try
-        {
-          auto gridMap = getGridMap(dataManager, analysisDataSeries.dataSeriesId);
-
-          if(gridMap.empty())
-          {
-            QString errMsg = QObject::tr("Could not recover grid for data series: %1.").arg(analysis->outputGridPtr->resolutionDataSeriesId);
-            throw terrama2::InvalidArgumentException() << ErrorDescription(errMsg);
-          }
-
-          auto raster = gridMap.begin()->second;
-          if(!raster)
-          {
-            QString errMsg = QObject::tr("Could not recover raster for dataset: %1.").arg(gridMap.begin()->first->id);
-            throw terrama2::InvalidArgumentException() << ErrorDescription(errMsg);
-          }
-
-          // Calculates the area of the pixel
-          double area = raster->getResolutionX() * raster->getResolutionY();
-          if(area <= pixelArea)
-          {
-            // In case the area is the same, gives priority to the greater in X.
-            if(area == pixelArea)
-            {
-              if(raster->getResolutionX() > resX)
-              {
-                resX = raster->getResolutionX();
-                resY = raster->getResolutionY();
-                pixelArea = area;
-              }
-            }
-            else
-            {
-              resX = raster->getResolutionX();
-              resY = raster->getResolutionY();
-              pixelArea = area;
-            }
-          }
-        }
-        catch(terrama2::core::NoDataException e)
-        {
-          continue;
-        }
-
-      }
-      break;
-    }
-    case ResolutionType::CUSTOM:
-    {
-      resX = analysis->outputGridPtr->resolutionX;
-      resY = analysis->outputGridPtr->resolutionY;
-      break;
-    }
-  }
-
-  nRows = (unsigned int)std::abs(std::ceil((box->getUpperRightY() - box->getLowerLeftY()) / resY));
-  nCols = (unsigned int)std::abs(std::ceil((box->getUpperRightX() - box->getLowerLeftX()) / resX));
-
-
-  std::map<std::string, std::string> rinfo;
-
-  rinfo["MEM_SRC_RASTER_DRIVER_TYPE"] = "GDAL";
-  rinfo["MEM_RASTER_NROWS"] = std::to_string(nRows);
-  rinfo["MEM_RASTER_NCOLS"] = std::to_string(nCols);
-  rinfo["MEM_RASTER_RES_X"] = std::to_string(resX);
-  rinfo["MEM_RASTER_RES_Y"] = std::to_string(resY);
-  rinfo["MEM_RASTER_DATATYPE"] = te::common::Convert2String(te::dt::DOUBLE_TYPE);
-  rinfo["MEM_RASTER_NBANDS"] = "1";
-  rinfo["MEM_RASTER_SRID"] = std::to_string(srid);
-  rinfo["MEM_RASTER_MIN_X"] = std::to_string(box->getLowerLeftX());
-  rinfo["MEM_RASTER_MIN_Y"] = std::to_string(box->getLowerLeftY());
-  rinfo["MEM_RASTER_MAX_X"] = std::to_string(box->getUpperRightX());
-  rinfo["MEM_RASTER_MAX_Y"] = std::to_string(box->getUpperRightY());
-
-  return rinfo;
+  return std::make_tuple(grid, bands);
 }
 
 std::shared_ptr<te::rst::Raster>
 terrama2::services::analysis::core::reprojectRaster(std::shared_ptr<te::rst::Raster> inputRaster,
-                                                    std::map<std::string, std::string> outputRasterInfo,
-                                                    InterpolationMethod method)
+    std::map<std::string, std::string> outputRasterInfo,
+    InterpolationMethod method)
 {
-  int resX = std::atoi(outputRasterInfo["MEM_RASTER_RES_X"].c_str());
-  int resY = std::atoi(outputRasterInfo["MEM_RASTER_RES_Y"].c_str());
-  int srid = std::atoi(outputRasterInfo["MEM_RASTER_SRID"].c_str());
-  double llx = std::atof(outputRasterInfo["MEM_RASTER_MIN_X"].c_str());
-  double lly = std::atof(outputRasterInfo["MEM_RASTER_MIN_Y"].c_str());
-  double urx = std::atof(outputRasterInfo["MEM_RASTER_MAX_X"].c_str());
-  double ury = std::atof(outputRasterInfo["MEM_RASTER_MAX_Y"].c_str());
+  auto oldNRows = inputRaster->getNumberOfRows();
+  auto oldNCols = inputRaster->getNumberOfColumns();
 
-  std::shared_ptr<te::rst::Raster> reprojectedRaster(te::rst::Reproject(inputRaster.get(), srid, llx, lly, urx, ury,
-                                                                        resX, resY, outputRasterInfo, (int)method));
+  unsigned int rows = static_cast<unsigned int>(std::stoi(outputRasterInfo["MEM_RASTER_NROWS"]));
+  unsigned int cols = static_cast<unsigned int>(std::stoi(outputRasterInfo["MEM_RASTER_NCOLS"]));
 
-  return reprojectedRaster;
+  std::vector< unsigned int > inputRasterBands;
+  for(unsigned int i = 0; i < inputRaster->getNumberOfBands(); ++i)
+  {
+    inputRasterBands.push_back(i);
+  }
+
+//  std::auto_ptr<te::rst::Raster> resampledRasterPtr(te::rst::RasterFactory::make("MEM", 0, std::vector<te::rst::BandProperty*>(), outputRasterInfo));
+
+  te::rst::Grid* grid = nullptr;
+  std::vector<te::rst::BandProperty*> bands;
+  std::tie(grid, bands) = terrama2::services::analysis::core::getOutputRasterInfo(outputRasterInfo);
+  assert(grid);
+  std::auto_ptr<te::rst::Raster> resampledRasterPtr(te::rst::RasterFactory::make("EXPANSIBLE", grid, bands, {}));
+  auto ok = te::rp::RasterResample(*inputRaster, inputRasterBands, (te::rst::Interpolator::Method)method, 0, 0, oldNRows,
+                                   oldNCols, rows, cols, outputRasterInfo,
+                                   "EXPANSIBLE" ,resampledRasterPtr);
+
+  assert(ok);
+
+  return std::shared_ptr<te::rst::Raster>(resampledRasterPtr.release());
 }
-

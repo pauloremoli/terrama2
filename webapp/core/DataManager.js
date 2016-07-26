@@ -33,7 +33,7 @@ var fs = require('fs');
 var path = require('path');
 
 // Tcp
-var TcpManagerClass = require('./TcpManager');
+var TcpManager = require('./TcpManager');
 
 // data model
 var DataModel = require('./data-model');
@@ -90,8 +90,6 @@ function _processFilter(filterObject) {
 
 var models = null;
 
-var TcpManager = new TcpManagerClass();
-
 /**
  * Controller of the system index.
  * @class DataManager
@@ -111,6 +109,10 @@ var DataManager = {
   },
   isLoaded: false,
 
+  Promise: Promise,
+  TcpManager: TcpManager,
+  DataModel: DataModel,
+
   /**
    * It initializes DataManager, loading models and database synchronization
    * @param {function} callback - A callback function for waiting async operation
@@ -127,6 +129,14 @@ var DataManager = {
 
       models = modelsFn();
       models.load(connection);
+
+      // console.log("Loading DAO's...");
+      // for(var k in dao) {
+      //   if (dao.hasOwnProperty(k)) {
+      //     var klass = dao[k](self);
+      //     self[k] = new klass();
+      //   }
+      // }
 
       var fn = function() {
         // todo: insert default values in database
@@ -147,6 +157,32 @@ var DataManager = {
         // services type
         inserts.push(models.db.ServiceType.create({name: "COLLECT"}));
         inserts.push(models.db.ServiceType.create({name: "ANALYSIS"}));
+
+        // default services
+        var collectorService = {
+          name: "Local Collector",
+          description: "Local service for Collect",
+          port: 6543,
+          pathToBinary: "terrama2_service",
+          numberOfThreads: 0,
+          service_type_id: Enums.ServiceType.COLLECTOR,
+          log: {
+            host: "127.0.0.1",
+            port: 5432,
+            user: "postgres",
+            password: "postgres",
+            database: "nodejs" // TODO: change it
+          }
+        };
+
+        var analysisService = Object.assign({}, collectorService);
+        analysisService.name = "Local Analysis";
+        analysisService.description = "Local service for Analysis";
+        analysisService.port = 6544;
+        analysisService.service_type_id = Enums.ServiceType.ANALYSIS;
+
+        inserts.push(self.addServiceInstance(collectorService));
+        inserts.push(self.addServiceInstance(analysisService));
 
         // data provider type defaults
         inserts.push(self.addDataProviderType({id: 1, name: "FILE", description: "Desc File"}));
@@ -701,13 +737,8 @@ var DataManager = {
     var self = this;
     return new Promise(function(resolve, reject) {
       self.getServiceInstance({id: serviceId}).then(function(serviceResult) {
-        models.db['ServiceInstance'].update({
-          name: serviceObject.name,
-          description: serviceObject.description,
-          port: serviceObject.port,
-          numberOfThreads: serviceObject.numberOfThreads
-        }, {
-          fields: ['name', 'description', 'port', 'numberOfThreads'],
+        models.db['ServiceInstance'].update(serviceObject, {
+          fields: ['name', 'description', 'port', 'numberOfThreads', 'runEnviroment', 'host', 'sshUser', 'sshPort', 'pathToBinary'],
           where: {
             id: serviceId
           }
@@ -720,6 +751,21 @@ var DataManager = {
         reject(err);
       })
     });
+  },
+
+  updateLog: function(logId, logObject) {
+    return new Promise(function(resolve, reject) {
+      models.db.Log.update(logObject, {
+        fields: ['host', 'port', 'user', 'database'],
+        where: {
+          id: logId
+        }
+      }).then(function() {
+        resolve();
+      }).catch(function(err) {
+        reject(new Error("Could not update log " + err.toString()));
+      })
+    })
   },
 
   /**
@@ -932,10 +978,12 @@ var DataManager = {
             var dataToSend = {"DataProviders": [d.toObject()]};
 
             servicesInstance.forEach(function(service) {
-              TcpManager.emit('sendData', service, dataToSend);
-            });
+              try {
+                TcpManager.emit('sendData', service, dataToSend);
+              } catch (e) {
 
-            TcpManager.emit('removeListeners');
+              }
+            });
 
           }).catch(function(err) {
             reject(err);
@@ -1043,8 +1091,6 @@ var DataManager = {
 
               }
             })
-
-            TcpManager.emit('removeListeners');
           }).catch(function(err) { });
 
           resolve(new DataModel.DataProvider(dataProvider));
@@ -1099,7 +1145,6 @@ var DataManager = {
               services.forEach(function(service) {
                 try {
                   TcpManager.emit('removeData', service, objectToSend);
-                  TcpManager.emit('removeListeners');
                 } catch (e) {
                   console.log(e);
                 }
@@ -2455,8 +2500,14 @@ var DataManager = {
   getAnalysis: function(restriction) {
     var self = this;
     return new Promise(function(resolve, reject) {
+      var restrict = Object.assign({}, restriction || {});
+      var dataSeriesRestriction = {};
+      if (restrict && restrict.dataSeries) {
+        dataSeriesRestriction = restrict.dataSeries;
+        delete restrict.dataSeries;
+      }
       models.db['Analysis'].findOne({
-        where: restriction || {},
+        where: restrict,
         include: [
           {
             model: models.db['AnalysisDataSeries'],
@@ -2470,7 +2521,16 @@ var DataManager = {
           models.db['AnalysisMetadata'],
           models.db['ScriptLanguage'],
           models.db['AnalysisType'],
-          models.db['Schedule']
+          models.db['Schedule'],
+          {
+            model: models.db['DataSet'],
+            include: [
+              {
+                model: models.db['DataSeries'],
+                where: dataSeriesRestriction
+              }
+            ]
+          }
         ]
       }).then(function(analysisResult) {
         var analysisInstance = new DataModel.Analysis(analysisResult.get());

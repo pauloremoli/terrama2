@@ -4,7 +4,7 @@ angular.module('terrama2.administration.services', ['terrama2.table', 'terrama2.
       $scope.socket = Socket;
 
       $scope.title = i18n.__('Services');
-      $scope.helperMessage = "This page shows availables services in TerraMA2 application";
+      $scope.helperMessage = "This page shows available services in TerraMA2 application";
 
       // terrama2 box
       $scope.boxCss = {};
@@ -37,7 +37,9 @@ angular.module('terrama2.administration.services', ['terrama2.table', 'terrama2.
         if (!service)
           return;
 
-        service.loading = false;
+        if (response.hasOwnProperty('loading'))
+          service.loading = response.loading;
+
         service.online = response.online;
       });
 
@@ -47,10 +49,12 @@ angular.module('terrama2.administration.services', ['terrama2.table', 'terrama2.
         if (!service)
           return;
 
-        service.loading = false;
+        service.loading = response.loading;
         service.online = response.online;
-        service.requestingForClose = false;
-      })
+
+        if (!response.loading)
+          service.requestingForClose = false;
+      });
 
       $scope.socket.on('closeResponse', function(response) {
         var service = getModel(response.service);
@@ -90,9 +94,10 @@ angular.module('terrama2.administration.services', ['terrama2.table', 'terrama2.
         $scope.model = services;
 
         services.forEach(function(service) {
-          service.loading = true;
-
-          $scope.socket.emit('status', {service: service.id});
+          if (configuration.message && parseInt(configuration.service) === service.id && configuration.restart) {
+            $scope.socket.emit('start', {service: service.id});
+          } else
+            $scope.socket.emit('status', {service: service.id});
         });
 
         // todo: ping each one to check current state
@@ -152,7 +157,6 @@ angular.module('terrama2.administration.services', ['terrama2.table', 'terrama2.
             $scope.model.forEach(function(modelInstance) {
               if (modelInstance.online) {
                 if (!modelInstance.loading) {
-                  modelInstance.loading = true;
                   $scope.socket.emit('stop', {service: modelInstance.id});
                 }
               }
@@ -172,7 +176,6 @@ angular.module('terrama2.administration.services', ['terrama2.table', 'terrama2.
           },
 
           handler: function(serviceInstance) {
-            serviceInstance.loading = true;
             if (!serviceInstance.online) {
               $scope.socket.emit('start', {service: serviceInstance.id});
             } else {

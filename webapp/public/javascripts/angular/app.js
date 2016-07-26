@@ -129,7 +129,8 @@ terrama2Application.directive('terrama2ShowErrors', function() {
         el.toggleClass('has-error', formCtrl[inputName].$invalid);
       });
 
-      scope.$on('formFieldValidation', function() {
+      scope.$on('formFieldValidation', function(formName) {
+        var s = formCtrl;
         var target = formCtrl[inputName];
         el.toggleClass('has-error', target.$invalid);
         el.toggleClass('has-success', target.$valid);
@@ -139,7 +140,7 @@ terrama2Application.directive('terrama2ShowErrors', function() {
   }
 })
 
-terrama2Application.directive('terrama2Box', function() {
+terrama2Application.directive('terrama2Box', function($parse) {
   return {
     restrict: 'E',
     transclude: true,
@@ -147,8 +148,8 @@ terrama2Application.directive('terrama2Box', function() {
     scope: {
       title: '=title',
       helper: '=?helper',
-      extra: '=?extra',
-      'css': '=?css',
+      extra: '=?',
+      css: '=?'
     },
     controller: function($scope) {
       $scope.css = $scope.css || {};
@@ -158,15 +159,11 @@ terrama2Application.directive('terrama2Box', function() {
         $scope.boxType = $scope.css.boxType;
     },
     link: function(scope, element, attrs, ctrl, transclude) {
-      // create new child scope, then append the controller functions
-      var self = scope.$parent.$new();
+      var elm = element.find('#targetTransclude');
 
-      // element.find('#targetTransclude').append(transclude(self, function(clone, scope) {
-			// 	element.append(clone);
-			// });
-      element.find('#targetTransclude').append(transclude(self));
-
-      console.log(attrs);
+      transclude(scope.$parent, function(clone, scope) {
+        elm.append(clone);
+      })
     }
   }
 });
@@ -188,19 +185,27 @@ terrama2Application.directive('terrama2BoxFooter', function() {
       });
     }
   }
-})
+});
 
 terrama2Application.directive('terrama2Form', function() {
   return {
     restrict: 'E',
-    template: '<div><form name="{{ formName }}" ng-submit="callSubmit()"><div ng-transclude></div></form></div>',
-    scope: {
-      formName: '=formName',
-      onSubmit: '&'
-    },
-    link: function(scope, element, attributes){
-      scope.callSubmit = function(){
-        scope.onSubmit();
+    transclude: true,
+    template: '<form name="{{ formName }}" novalidate><div id="targetTransclude"></div></form>',
+    link: {
+      pre: function preLink(scope, element, attributes, controller, transclude) {
+        scope.formName = attributes.formName;
+      },
+      post: function postLink(scope, element, attributes, ctrl, transclude){
+        var elm = element.find('#targetTransclude');
+
+        transclude(scope, function(clone, scp) {
+          elm.append(clone)
+        });
+
+        scope.$on('formValidation', function() {
+          scope.$emit('formStatus', scope.formName, scope[scope.formName].$valid);
+        })
       }
     }
   }
@@ -211,4 +216,53 @@ terrama2Application.directive('terrama2BoxOverlay', function() {
     transclude: true,
     template: '<div class="overlay" ng-show="isChecking"><i class="fa fa-refresh fa-spin"></i></div>'
   }
-})
+});
+
+terrama2Application.directive('terrama2Datetime', function($timeout) {
+  return {
+    restrict: 'A',
+    require : 'ngModel',
+    link: function(scope, element, attrs, ngModelCtrl) {
+      var options = angular.extend({}, options, scope.$eval(attrs.options));
+      scope.options = options;
+
+      // Watchers
+      scope.$watch('options', function (newValue) {
+        var data = element.data('DateTimePicker');
+        $.map(newValue, function (value, key) {
+          data[key](value);
+        });
+      });
+
+      ngModelCtrl.$render = function () {
+        if (!!ngModelCtrl.$viewValue) {
+          element.data('DateTimePicker').date(ngModelCtrl.$viewValue);
+        } else {
+          element.data('DateTimePicker').date(null);
+        }
+      };
+
+      // Digesting scope
+      element.on('dp.change', function (e) {
+        $timeout(function () {
+          if (!!e.date) {
+            scope.$apply(function () {
+              ngModelCtrl.$setViewValue(e.date);
+            });
+          }
+        });
+      });
+
+      element.datetimepicker(options);
+
+      $timeout(function () {
+        if (!!ngModelCtrl.$viewValue) {
+          if (!(ngModelCtrl.$viewValue instanceof moment)) {
+            ngModelCtrl.$setViewValue(moment(scope.date));
+          }
+          element.data('DateTimePicker').date(ngModelCtrl.$viewValue);
+        }
+      });
+    }
+  };
+});

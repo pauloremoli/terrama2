@@ -6,9 +6,16 @@ angular.module('terrama2.administration.services.registration',
     var socket = Socket;
 
     // setting defaults
-    $scope.boxCss = {
-      'boxType': 'box-solid'
-    }
+    $scope.css = {'boxType': 'box-solid'};
+
+    $scope.initService = function(state) {
+      $scope.service = $scope.service || {};
+
+      if ($scope.update && $scope.service.host && $scope.service.host !== "")
+        $scope.service.isLocal = false;
+      else
+        $scope.service.isLocal = state;
+    };
 
     $scope.isCheckingConnection = false;
     $scope.services = [];
@@ -27,9 +34,7 @@ angular.module('terrama2.administration.services.registration',
     // setting log instance
     $scope.log = $scope.service.log || {};
 
-    $scope.update = false;
-    if ($scope.service.name)
-      $scope.update = true;
+    $scope.update = $scope.service.name ? true : false;
 
     $scope.alertBox = {};
     $scope.display = false;
@@ -41,6 +46,9 @@ angular.module('terrama2.administration.services.registration',
     };
 
     $scope.extraProperties = {};
+    $scope.config = {
+      availableDatabases: []
+    };
 
     // Getting all service instance to suggest database names
     ServiceInstanceFactory.get().success(function(services) {
@@ -52,6 +60,7 @@ angular.module('terrama2.administration.services.registration',
       // process
       var ports = [];
       services.forEach(function(service) {
+        $scope.config.availableDatabases.push(Object.assign({name: service.name}, service.log));
         ports.push(service.port);
       });
 
@@ -69,7 +78,7 @@ angular.module('terrama2.administration.services.registration',
         console.log("OK");
         $scope.service.port = response.port;
       }
-    })
+    });
 
     // watching service type changed
     $scope.$watch('service.service_type_id', function(value) {
@@ -79,7 +88,6 @@ angular.module('terrama2.administration.services.registration',
           $scope.service.pathToBinary = $scope.service.pathToBinary || "terrama2_service";
           break;
         default: // none
-          $scope.service.pathToBinary = $scope.service.pathToBinary;
           break;
       }
     });
@@ -93,11 +101,11 @@ angular.module('terrama2.administration.services.registration',
       $scope.isCheckingConnection = true;
       $scope.ssh = {
         isLoading: true
-      }
+      };
 
       $scope.db = {
         isLoading: true
-      }
+      };
 
       setTimeout(function() {
         // SSH
@@ -105,9 +113,11 @@ angular.module('terrama2.administration.services.registration',
           {
             host: $scope.service.host,
             port: $scope.service.sshPort,
-            username: $scope.service.sshUser
+            username: $scope.service.sshUser,
+            isLocal: $scope.service.isLocal,
+            pathToBinary: $scope.service.pathToBinary
           }
-        )
+        );
         socket.on('testSSHConnectionResponse', function(result) {
           $scope.ssh.isLoading = false;
           if (result.error) {
@@ -156,7 +166,7 @@ angular.module('terrama2.administration.services.registration',
       }
 
       request.success(function(data) {
-        $window.location.href = "/administration/services?token=" + data.token;
+        $window.location.href = "/administration/services?token=" + data.token+"&service="+data.service + "&restart="+data.restart;
       }).error(function(err) {
         console.log(err);
         $scope.display = true;
@@ -189,7 +199,7 @@ angular.module('terrama2.administration.services.registration',
           $scope.alertBox.message = i18n.__("There is already a service registered in same port ") + service.port + " (" + service.name + ")";
           $scope.display = true;
           $scope.extraProperties.confirmButtonFn = $scope._save;
-          $scope.extraProperties.object = {}
+          $scope.extraProperties.object = {};
           return;
         }
       }
@@ -197,12 +207,10 @@ angular.module('terrama2.administration.services.registration',
       $scope._save();
     });
 
-    $scope.save = function(serviceForm, logForm) {
+    $scope.save = function() {
       $scope.$broadcast('formFieldValidation');
 
-      var serviceForm = angular.element('form[name="serviceForm"]').scope()['serviceForm'];
-      var logForm = angular.element('form[name="logForm"]').scope()['logForm'];
-      if (serviceForm.$invalid || logForm.$invalid) {
+      if ($scope.serviceForm.$invalid || $scope.logForm.$invalid) {
         return;
       }
 
@@ -210,7 +218,11 @@ angular.module('terrama2.administration.services.registration',
       if ($scope.service.runEnviroment)
         $scope.service.runEnviroment = $scope.service.runEnviroment.split("\n").join(" ");
 
+      if ($scope.service.isLocal) {
+        $scope.service.host = "";
+      }
+
       // testing port number
       socket.emit('testPortNumber', {port: $scope.service.port});
     }
-  }])
+  }]);

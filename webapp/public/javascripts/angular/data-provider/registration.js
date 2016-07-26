@@ -8,6 +8,9 @@ app.controller("RegisterController", ["$scope", "$http", "$q", "$window", "$http
   $scope.model = configuration.dataProvider.uriObject || {};
 
   $scope.forms = {};
+  $scope.css = {
+    boxType: "box-solid"
+  }
 
   if (configuration.fields) {
     $scope.schema = {
@@ -91,17 +94,11 @@ app.controller("RegisterController", ["$scope", "$http", "$q", "$window", "$http
   };
 
   $scope.save = function() {
-    if (!$scope.forms.dataProviderForm.$valid) {
-      angular.forEach($scope.forms.dataProviderForm.$error, function (field) {
-        angular.forEach(field, function(errorField){
-          errorField.$setTouched();
-        })
-      });
+    $scope.$broadcast('formFieldValidation');
+    var isConnectionFormValid = $scope.isValidDataProviderTypeForm($scope.forms.connectionForm);
+    if (!$scope.forms.dataProviderForm.$valid || !isConnectionFormValid) {
       return;
     }
-
-    if (!$scope.isValidDataProviderTypeForm($scope.forms.connectionForm))
-      return;
 
     $scope.alertBox.title = "Data Provider Registration";
     $scope.errorFound = false;

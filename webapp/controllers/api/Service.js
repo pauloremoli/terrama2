@@ -1,11 +1,8 @@
 var DataManager = require("../../core/DataManager.js");
 var Utils = require("../../core/Utils");
 var TokenCode = require('./../../core/Enums').TokenCode;
-var passport = require('./../../config/Passport');
-var TcpManagerClass = require('./../../core/TcpManager');
-
-var TcpManager = new TcpManagerClass();
-
+var TcpManager = require('./../../core/TcpManager');
+var Log = require('./../../core/data-model/').Log;
 module.exports = function(app) {
   return {
     get: function(request, response) {
@@ -60,34 +57,60 @@ module.exports = function(app) {
     put: function(request, response) {
       var serviceId = request.params.id;
       var serviceObject = request.body.service;
-      serviceObject.log = request.body.log;
-      DataManager.updateServiceInstance(serviceId, serviceObject).then(function() {
-        DataManager.getServiceInstance({id: serviceId}).then(function(serviceInstance) {
-          var token = Utils.generateToken(app, TokenCode.UPDATE, serviceInstance.name);
 
-          if (TcpManager.isServiceConnected(serviceInstance)) {
-            try {
-              TcpManager.emit('updateService', serviceInstance);
-
-              setTimeout(function() {
-                // shutdown
-                TcpManager.emit('stopService', serviceInstance);
-
-                TcpManager.emit('removeListeners');
-              }, 2000)
-            } catch(e) {
-              console.log(e);
-            }
-          }
-
-          // TODO: send update signal and restart service
-          return response.json({status: 200, token: token});
-        }).catch(function(err) {
-          Utils.handleRequestError(response, err, 400);
-        });
-      }).catch(function(err) {
+      var _handleError = function(err) {
         Utils.handleRequestError(response, err, 400);
-      });
+      };
+
+      serviceObject.log = request.body.log;
+      DataManager.getServiceInstance({id: serviceId}).then(function(serviceInstance) {
+        var shouldRestart = !Utils.equal({
+          runEnviroment: serviceInstance.runEnviroment,
+          port: serviceInstance.port,
+          sshUser: serviceInstance.sshUser,
+          pathToBinary: serviceInstance.pathToBinary,
+          host: serviceInstance.host
+        }, {
+          runEnviroment: serviceObject.runEnviroment,
+          port: serviceObject.port,
+          sshUser: serviceObject.sshUser,
+          pathToBinary: serviceObject.pathToBinary,
+          host: serviceObject.host
+        });
+
+        var logSent = new Log(serviceObject.log);
+        var logInDatabase = serviceInstance.log;
+
+        DataManager.updateServiceInstance(serviceId, serviceObject).then(function() {
+          var _continueRequest = function() {
+            DataManager.getServiceInstance({id: serviceInstance.id}).then(function(newServiceInstance) {
+              var token = Utils.generateToken(app, TokenCode.UPDATE, newServiceInstance.name);
+
+              if (TcpManager.isServiceConnected(serviceInstance)) {
+                try {
+                  console.log("Should restart? - " + shouldRestart);
+                  if (shouldRestart) {
+                    TcpManager.emit('stopService', serviceInstance);
+                  } else
+                    TcpManager.emit('updateService', serviceInstance);
+                } catch(e) {
+                  console.log(e);
+                }
+              } else
+                shouldRestart = false;
+              return response.json({status: 200, token: token, service: serviceInstance.id, restart: shouldRestart});
+            });
+          };
+
+          if (!Utils.equal(logSent.toObject(), logInDatabase.toObject())) {
+            shouldRestart = true;
+            DataManager.updateLog(serviceInstance.log.id, logSent).then(function() {
+              _continueRequest();
+            }).catch(_handleError);
+          } else
+            _continueRequest();
+        }).catch(_handleError);
+      }).catch(_handleError);
     },
 
     delete: function(request, response) {

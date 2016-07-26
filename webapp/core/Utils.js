@@ -7,6 +7,7 @@ var exceptions = require('./Exceptions');
 var Signals = require('./Signals');
 var Promise = require("bluebird");
 var util = require('util');
+var isEqual = require('lodash').isEqual;
 
 // nodejs
 var glob = require('glob');
@@ -39,6 +40,29 @@ module.exports = {
   handleRequestError: function(response, err, code) {
     response.status(code);
     return response.json({status: code, message: err.message});
+  },
+
+  getCommonRequestFields : function() {
+    return [{
+      key: UriPattern.HOST,
+      type: FormField.TEXT,
+      htmlClass: 'col-md-6 terrama2-schema-form'
+    },
+    {
+      key: UriPattern.PORT,
+      type: FormField.NUMBER,
+      htmlClass: 'col-md-6 terrama2-schema-form'
+    },
+    {
+      key: UriPattern.USER,
+      type: FormField.TEXT,
+      htmlClass: 'col-md-6 terrama2-schema-form'
+    },
+    {
+      key: UriPattern.PASSWORD,
+      type: FormField.PASSWORD,
+      htmlClass: 'col-md-6 terrama2-schema-form'
+    }]
   },
 
   makeCommonRequestFields: function(scheme, port, exceptField, required, displayOrder) {
@@ -362,7 +386,10 @@ module.exports = {
           console.log(e);
         }
       });
-      TcpManager.emit('removeListeners');
     });
+  },
+
+  equal: function(origin, target) {
+    return isEqual(origin, target);
   }
 };

@@ -89,11 +89,3 @@ double terrama2::services::analysis::core::occurrence::aggregation::standardDevi
   return terrama2::services::analysis::core::occurrence::operatorImpl(StatisticOperation::STANDARD_DEVIATION, dataSeriesName, buffer, dateFilter, aggregationBuffer, attribute,
                             aggregationStatisticOperation, restriction);
 }
-
-
-
-
-
-
-
-
